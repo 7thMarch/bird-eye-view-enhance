@@ -41,7 +41,7 @@ export const preprocessImage = async (
       // Convert to RGB and normalize to [0, 1]
       const tensor = new Float32Array(3 * modelHeight * modelWidth);
       
-      // YOLOv8 expects CHW (Channel, Height, Width) format
+      // YOLOv8 expects CHW (Channel, Height, Width) format with values normalized to [0, 1]
       for (let y = 0; y < modelHeight; y++) {
         for (let x = 0; x < modelWidth; x++) {
           const pixelIndex = (y * modelWidth + x) * 4;
@@ -58,6 +58,12 @@ export const preprocessImage = async (
         }
       }
 
+      // Save processed data for debugging
+      console.log("Preprocessing complete:");
+      console.log("- Original dimensions:", originalWidth, "x", originalHeight);
+      console.log("- Model dimensions:", modelWidth, "x", modelHeight);
+      console.log("- Tensor size:", tensor.length);
+
       resolve({
         tensor,
         width: modelWidth,
@@ -67,7 +73,8 @@ export const preprocessImage = async (
       });
     };
 
-    img.onerror = () => {
+    img.onerror = (e) => {
+      console.error("Image loading error:", e);
       reject(new Error("Failed to load image"));
     };
 
@@ -99,11 +106,16 @@ export const drawDetections = (
   img.onload = () => {
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
+    // Log detections for debugging
+    console.log(`Drawing ${detections.length} detections with threshold ${threshold}`);
+    
     // Draw bounding boxes for each detection above threshold
     detections
       .filter(detection => detection.score >= threshold)
       .forEach(detection => {
         const [x, y, width, height] = detection.bbox;
+        
+        console.log(`Drawing detection at (${x}, ${y}) with size (${width}, ${height}) and score ${detection.score}`);
         
         // Draw bounding box
         ctx.lineWidth = 3;

@@ -4,6 +4,7 @@ import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/custom-button';
 import { preprocessImage, drawDetections } from '@/utils/imageProcessing';
 import { BirdNestDetection } from '@/types';
+import { useToast } from '@/hooks/use-toast';
 
 // Define paths to static assets - these would be placed in the public folder
 const MODEL_URL = '/models/birdnest.onnx'; 
@@ -24,6 +25,7 @@ const BirdNestDetector = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const workerRef = useRef<Worker | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const { toast } = useToast();
   
   // Initialize worker on component mount
   useEffect(() => {
@@ -40,12 +42,24 @@ const BirdNestDetector = () => {
         case 'MODEL_LOADED':
           setIsModelLoaded(true);
           setWorkerReady(true);
+          toast({
+            title: "Model loaded successfully",
+            description: "The bird nest detection model is ready to use."
+          });
           break;
         
         case 'INFERENCE_RESULT':
           if (detections) {
+            console.log('Received detections:', detections);
             setDetections(detections);
             drawDetectionsOnCanvas(detections);
+            
+            // Show toast notification with detection count
+            const count = detections.length;
+            toast({
+              title: `Detection complete`,
+              description: `Found ${count} bird ${count === 1 ? 'nest' : 'nests'} in the image.` 
+            });
           }
           setIsProcessing(false);
           break;
@@ -53,6 +67,11 @@ const BirdNestDetector = () => {
         case 'ERROR':
           setError(error || 'An unknown error occurred');
           setIsProcessing(false);
+          toast({
+            title: "Error",
+            description: error || 'An unknown error occurred',
+            variant: "destructive"
+          });
           break;
       }
     };
@@ -61,6 +80,7 @@ const BirdNestDetector = () => {
     workerRef.current = worker;
     
     // Load model
+    console.log('Loading model from:', MODEL_URL);
     worker.postMessage({
       type: 'LOAD_MODEL',
       modelUrl: MODEL_URL
@@ -72,7 +92,7 @@ const BirdNestDetector = () => {
         workerRef.current.terminate();
       }
     };
-  }, []);
+  }, [toast]);
   
   // Handle file drops
   const { getRootProps, getInputProps } = useDropzone({
@@ -116,18 +136,27 @@ const BirdNestDetector = () => {
     setError(null);
     
     try {
+      console.log('Starting image preprocessing');
       // Preprocess image
       const imageData = await preprocessImage(imageUrl);
+      console.log('Image preprocessing complete');
       
       // Run inference in worker
+      console.log('Sending data to worker for inference');
       workerRef.current.postMessage({
         type: 'RUN_INFERENCE',
         imageData,
         confidenceThreshold
       });
     } catch (err) {
+      console.error('Error during detection:', err);
       setError(err instanceof Error ? err.message : 'Failed to process image');
       setIsProcessing(false);
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : 'Failed to process image',
+        variant: "destructive"
+      });
     }
   };
   
@@ -192,6 +221,11 @@ const BirdNestDetector = () => {
     link.download = 'birdnest-detection.png';
     link.href = canvasRef.current.toDataURL('image/png');
     link.click();
+    
+    toast({
+      title: "Image saved",
+      description: "Detection result has been saved to your device."
+    });
   };
 
   return (

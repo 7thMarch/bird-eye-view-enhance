@@ -83,6 +83,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessageIn>) => {
     }
   } catch (error) {
     // Handle any errors
+    console.error('Worker error:', error);
     const errorMessage: WorkerMessageOut = {
       type: 'ERROR',
       error: error instanceof Error ? error.message : String(error)
@@ -109,10 +110,21 @@ async function runInference(
 
   // Run inference
   const feeds = { images: inputTensor };
-  const results = await session.run(feeds);
+  console.log('Model inputs:', session.inputNames);
+  console.log('Model outputs:', session.outputNames);
   
-  // Process results
-  const output = results.output;
+  // Try different input names if 'images' doesn't work
+  const inputName = session.inputNames[0];
+  const feedsWithCorrectName = { [inputName]: inputTensor };
+  
+  const results = await session.run(feedsWithCorrectName);
+  
+  // Get the first output from the model
+  const outputName = session.outputNames[0];
+  const output = results[outputName];
+  
+  console.log('Output tensor:', output);
+  console.log('Output shape:', output?.dims);
   
   if (!output) {
     throw new Error('Model output is undefined');
@@ -142,60 +154,165 @@ function processYoloOutput(
   const data = outputTensor.data as Float32Array;
   const dimensions = outputTensor.dims;
   
-  // YOLOv8 output shape is typically [1, num_detections, 5+num_classes]
-  const numDetections = dimensions[1];
-  const detectionSize = dimensions[2];
+  console.log('Processing output with dimensions:', dimensions);
   
-  const detections: BirdNestDetection[] = [];
+  // YOLOv8 output shape could vary based on export options
+  let detections: BirdNestDetection[] = [];
   
   // Scale factors to map back to original image
   const xScale = originalWidth / modelWidth;
   const yScale = originalHeight / modelHeight;
   
-  for (let i = 0; i < numDetections; i++) {
-    const baseIndex = i * detectionSize;
+  // Format 1: [1, num_detections, 5+num_classes] (standard format)
+  if (dimensions.length === 3 && dimensions[2] > 5) {
+    const numDetections = dimensions[1];
+    const detectionSize = dimensions[2];
     
-    // YOLOv8 outputs center coordinates, width and height, and confidence + class scores
-    const x = data[baseIndex];
-    const y = data[baseIndex + 1];
-    const width = data[baseIndex + 2];
-    const height = data[baseIndex + 3];
-    const confidence = data[baseIndex + 4];
-    
-    // Only consider detections with confidence above threshold
-    if (confidence < confidenceThreshold) continue;
-    
-    // Find the class with highest probability
-    let maxClassProb = 0;
-    let classId = 0;
-    
-    for (let c = 0; c < classNames.length; c++) {
-      const classProb = data[baseIndex + 5 + c];
-      if (classProb > maxClassProb) {
-        maxClassProb = classProb;
-        classId = c;
+    for (let i = 0; i < numDetections; i++) {
+      const baseIndex = i * detectionSize;
+      
+      // YOLOv8 outputs center coordinates, width and height, and confidence + class scores
+      const x = data[baseIndex];
+      const y = data[baseIndex + 1];
+      const width = data[baseIndex + 2];
+      const height = data[baseIndex + 3];
+      const confidence = data[baseIndex + 4];
+      
+      // Only consider detections with confidence above threshold
+      if (confidence < confidenceThreshold) continue;
+      
+      // Find the class with highest probability
+      let maxClassProb = 0;
+      let classId = 0;
+      
+      for (let c = 0; c < classNames.length; c++) {
+        const classProb = data[baseIndex + 5 + c];
+        if (classProb > maxClassProb) {
+          maxClassProb = classProb;
+          classId = c;
+        }
       }
+      
+      // Calculate final score
+      const score = confidence * maxClassProb;
+      
+      // Skip low-confidence detections
+      if (score < confidenceThreshold) continue;
+      
+      // Convert from center coordinates to top-left coordinates and scale to original image
+      const scaledX = (x - width / 2) * xScale;
+      const scaledY = (y - height / 2) * yScale;
+      const scaledWidth = width * xScale;
+      const scaledHeight = height * yScale;
+      
+      detections.push({
+        bbox: [scaledX, scaledY, scaledWidth, scaledHeight],
+        score,
+        class_id: classId,
+        class_name: classNames[classId]
+      });
     }
+  }
+  // Last resort - try to handle YOLOv8 output based on common patterns
+  else {
+    console.log('Trying to process alternative YOLOv8 output format');
     
-    // Calculate final score
-    const score = confidence * maxClassProb;
-    
-    // Skip low-confidence detections
-    if (score < confidenceThreshold) continue;
-    
-    // Convert from center coordinates to top-left coordinates and scale to original image
-    const scaledX = (x - width / 2) * xScale;
-    const scaledY = (y - height / 2) * yScale;
-    const scaledWidth = width * xScale;
-    const scaledHeight = height * yScale;
-    
-    detections.push({
-      bbox: [scaledX, scaledY, scaledWidth, scaledHeight],
-      score,
-      class_id: classId,
-      class_name: classNames[classId]
-    });
+    try {
+      // YOLOv8 can output in various formats based on export parameters
+      // This is a simplified approach to handle common formats
+      
+      // If we're dealing with a flat array of detections [x1,y1,w1,h1,conf1,cls1,x2,y2,...]
+      if (dimensions.length === 1 || (dimensions.length === 2 && dimensions[0] === 1)) {
+        const flatData = Array.from(data);
+        const boxSize = 6; // [x,y,w,h,conf,cls]
+        
+        for (let i = 0; i < flatData.length; i += boxSize) {
+          if (i + boxSize <= flatData.length) {
+            const confidence = flatData[i + 4];
+            
+            if (confidence >= confidenceThreshold) {
+              const x = flatData[i];
+              const y = flatData[i + 1];
+              const width = flatData[i + 2];
+              const height = flatData[i + 3];
+              const classId = Math.round(flatData[i + 5]);
+              
+              // Convert to original image coordinates
+              const scaledX = (x - width / 2) * xScale;
+              const scaledY = (y - height / 2) * yScale;
+              const scaledWidth = width * xScale;
+              const scaledHeight = height * yScale;
+              
+              detections.push({
+                bbox: [scaledX, scaledY, scaledWidth, scaledHeight],
+                score: confidence,
+                class_id: classId,
+                class_name: classNames[Math.min(classId, classNames.length - 1)]
+              });
+            }
+          }
+        }
+      }
+      // If we're dealing with a batch of detections [batch_size, num_detections, xywh+conf+classes]
+      else if (dimensions.length === 3) {
+        const batchSize = dimensions[0];
+        const numDetections = dimensions[1];
+        const elementsPerDetection = dimensions[2];
+        
+        for (let b = 0; b < batchSize; b++) {
+          for (let i = 0; i < numDetections; i++) {
+            const baseIdx = b * numDetections * elementsPerDetection + i * elementsPerDetection;
+            
+            // YOLOv8 standard output format has confidence at index 4
+            const confidence = data[baseIdx + 4];
+            
+            if (confidence >= confidenceThreshold) {
+              const x = data[baseIdx];
+              const y = data[baseIdx + 1];
+              const width = data[baseIdx + 2];
+              const height = data[baseIdx + 3];
+              
+              // Find max class probability
+              let maxClassProb = 0;
+              let classId = 0;
+              for (let c = 0; c < classNames.length; c++) {
+                const classIdx = baseIdx + 5 + c;
+                if (classIdx < baseIdx + elementsPerDetection) {
+                  const classProb = data[classIdx];
+                  if (classProb > maxClassProb) {
+                    maxClassProb = classProb;
+                    classId = c;
+                  }
+                }
+              }
+              
+              // Calculate final score
+              const score = confidence * (maxClassProb > 0 ? maxClassProb : 1);
+              
+              // Skip low-confidence detections
+              if (score < confidenceThreshold) continue;
+              
+              // Convert from center coordinates to top-left coordinates and scale to original image
+              const scaledX = (x - width / 2) * xScale;
+              const scaledY = (y - height / 2) * yScale;
+              const scaledWidth = width * xScale;
+              const scaledHeight = height * yScale;
+              
+              detections.push({
+                bbox: [scaledX, scaledY, scaledWidth, scaledHeight],
+                score,
+                class_id: classId,
+                class_name: classNames[classId]
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to process alternative output format:', err);
+    }
   }
   
+  console.log('Processed detections:', detections);
   return detections;
 }
