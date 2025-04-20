@@ -1,73 +1,86 @@
-# Welcome to your Lovable project
 
-## Project info
+# Bird Nest Detector Web App
 
-**URL**: https://lovable.dev/projects/7cae8673-7fd2-4962-ac55-95afb27bfe3b
+A browser-based application for detecting bird nests in images using YOLOv8, running entirely in the browser with ONNX Runtime Web.
 
-## How can I edit this code?
+## Features
 
-There are several ways of editing your application.
+- **Browser-Based Detection**: Run a YOLOv8 model directly in your browser
+- **No Server Required**: All processing happens locally on your device
+- **Privacy First**: Your images never leave your device
+- **WebGL/WebGPU Acceleration**: Uses hardware acceleration when available
+- **Easy to Use**: Simple drag-and-drop interface for image uploads
 
-**Use Lovable**
+## Technologies Used
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/7cae8673-7fd2-4962-ac55-95afb27bfe3b) and start prompting.
+- **React**: For building the UI
+- **TypeScript**: For type safety
+- **Tailwind CSS**: For styling
+- **ONNX Runtime Web**: For running the ML model in the browser
+- **Web Workers**: For non-blocking inference
 
-Changes made via Lovable will be committed automatically to this repo.
+## Setup and Run
 
-**Use your preferred IDE**
+1. Clone this repository:
+```bash
+git clone <repository-url>
+cd bird-nest-detector
+```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+2. Install dependencies:
+```bash
+npm install
+```
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+3. Add your model:
+   - Place your YOLOv8 ONNX model in the `public/models/` directory with the name `birdnest.onnx`.
+   - For sample images, place them in the `public/images/` directory.
 
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+4. Start the development server:
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+5. Open your browser and navigate to `http://localhost:8080`
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Building for Production
 
-**Use GitHub Codespaces**
+To create a production build:
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```bash
+npm run build
+```
 
-## What technologies are used for this project?
+The build files will be in the `dist/` directory.
 
-This project is built with:
+## How It Works
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+1. **Model Loading**: The application loads a YOLOv8 model converted to ONNX format.
+2. **Image Processing**: Uploaded images are preprocessed to match the model's input requirements.
+3. **Inference**: The model runs in a Web Worker to prevent UI blocking.
+4. **Visualization**: Detected bird nests are displayed as bounding boxes on the image.
 
-## How can I deploy this project?
+## Model Conversion
 
-Simply open [Lovable](https://lovable.dev/projects/7cae8673-7fd2-4962-ac55-95afb27bfe3b) and click on Share -> Publish.
+To convert your YOLOv8 model to ONNX format:
 
-## Can I connect a custom domain to my Lovable project?
+```python
+from ultralytics import YOLO
 
-Yes, you can!
+# Load your trained YOLOv8 model
+model = YOLO('birdnest.pt')
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+# Export to ONNX format
+model.export(format='onnx', dynamic=True, simplify=True)
+```
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+## Performance Considerations
+
+- **WebGPU**: For best performance, use Chrome with WebGPU enabled (`chrome://flags/#enable-unsafe-webgpu`).
+- **Model Size**: Smaller models will load faster and perform better on less powerful devices.
+- **Image Size**: Large images will be resized to fit the model's input dimensions.
+
+## Credits
+
+- Inspired by [web-realesrgan](https://github.com/xororz/web-realesrgan) project
+- Uses [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) for model inference
